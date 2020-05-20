@@ -5,7 +5,55 @@ Proxy](https://cloud.google.com/sql/docs/mysql/connect-kubernetes-engine) for st
 
 > Note: With the SQL Proxy Sidecar attached to your deployment, your database host will be `127.0.0.1`.
 
-## Granting a service account role/cloudsql.client
+There are [2 methods](https://cloud.google.com/sql/docs/mysql/connect-kubernetes-engine#proxy)
+ to work with the Cloud SQL Proxy:
+1. Proxy with Workload Identity (Recommended by Google)
+  - Recommended by Google
+  - Associates a Kubernetes Service Account (KSA) to a Google Service Account (GSA)
+2. Proxy with Service Account Key
+  - Uses mounted secrets
+
+Before you begin, make sure the Cloud SQL API is enabled:
+
+https://console.cloud.google.com/apis/library/iamcredentials.googleapis.com?_ga=2.26801341.1415054126.1589817032-1025133925.1585540116
+
+## Method 1: Proxy with Workload Identity
+
+Enable Workload Identity if you haven't done so yet:
+```bash
+# Enable Workload Identity (You may have to add --zone if not set in your config)
+gcloud container clusters update [cluster-name] \
+  --workload-pool=[project-id].svc.id.goog
+```
+
+Apply your service account:
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: <YOUR-KSA-NAME> # TODO(developer): replace these values
+```
+
+Enable the IAM binding between your YOUR-GSA-NAME and YOUR-KSA-NAME:
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:<YOUR-GCP-PROJECT>.svc.id.goog[<YOUR-K8S-NAMESPACE>/<YOUR-KSA-NAME>]" \
+  <YOUR-GSA-NAME>@<YOUR-GCP-PROJECT>.iam.gserviceaccount.com
+```
+
+Add an annotation to YOUR-KSA-NAME to complete the binding:
+```bash
+kubectl annotate serviceaccount \
+   <YOUR-KSA-NAME> \
+   iam.gke.io/gcp-service-account=<YOUR-GSA-NAME>@<YOUR-GCP-PROJECT>.iam.gserviceaccount.com
+```
+
+
+
+## Method 2: Proxy with Service Account Key
+
+### Granting a service account role/cloudsql.client
 
 In order to proxy Cloud SQL from a sidecar, the service account must have the `roles/cloudsql.client` role.
 
@@ -17,7 +65,7 @@ gcloud projects add-iam-policy-binding my-project \
 --role roles/cloudsql.client
 ```
 
-## Service Account Secret
+### Service Account Secret
 
 If you haven't already, create a secret from the service account key json file.
 
@@ -26,7 +74,7 @@ kubectl create secret generic <YOUR-SA-SECRET> \
 --from-file=service_account.json=~/key.json
 ```
 
-## Injecting the Cloud SQL Sidecar
+### Injecting the Cloud SQL Sidecar
 
 Add the following container (Sidecar) and volume mount to your deployment config.
 
